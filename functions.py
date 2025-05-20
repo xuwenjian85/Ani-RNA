@@ -2,7 +2,7 @@
 ## %run /public236T/test1/axolotl_rev/script/functions.py
 
 # Author: XWJ
-# Date: 2025-02-07
+# Date: 2025-05-19 logging
 import sys
 import pandas as pd
 import numpy as np
@@ -16,6 +16,7 @@ from sklearn.svm import OneClassSVM
 from sklearn.neighbors import LocalOutlierFactor
 import matplotlib.pyplot as plt
 import datetime
+import logging
 
 ###################################################################
 # 1. general 
@@ -144,7 +145,7 @@ def expand_fullconnect_network(pcc, pcc_tri, list_large, add_genes, num_new_edge
 
 def check_network_connect(G, mode=None):
     """读取网络并检查连通性; 验证最终网络是否全连通"""
-    print(f"Nodes:{G.number_of_nodes():<8} Edges:{G.number_of_edges():<8} Is Connected:{nx.is_connected(G)}\n")
+    logging.info(f"Nodes:{G.number_of_nodes():<8} Edges:{G.number_of_edges():<8} Is Connected:{nx.is_connected(G)}\n")
     if mode == 'connect?':
         return nx.is_connected(G)
     if mode == 'fully connect':
@@ -220,8 +221,8 @@ def find_high_correlated_genes(series_ae, pcc, pcc_tri, thres_q_pcc, pcc_gene_mi
     """
     values = []
     thres_u = pcc_tri['pcc'].quantile(q=1-thres_q_pcc)
-    print(f"{'Gene':<10} | {'AE Value':<10} | {'Edge':<10}")
-    print("-" * 40)
+    logging.info(f"{'Gene':<10} | {'AE Value':<10} | {'Edge':<10}")
+    logging.info("-" * 40)
     for g1 in series_ae.index:
         # mask_self = pcc[g1] != 1  # 排除自身相关性
         mask_self = pcc.index != g1
@@ -237,8 +238,8 @@ def find_high_correlated_genes(series_ae, pcc, pcc_tri, thres_q_pcc, pcc_gene_mi
         series_ae_pcc = pcc.loc[mask_self, g1].astype(np.float32).nlargest(take)  # 获取高相关基因对
         values.append(series_ae_pcc)
         
-        print(f"{g1:<10} | {series_ae.loc[g1]:<10.2e} | {series_ae_pcc.shape[0]:<5}")
-    print("\n")
+        logging.info(f"{g1:<10} | {series_ae.loc[g1]:<10.2e} | {series_ae_pcc.shape[0]:<5}")
+    logging.info("\n")
     # 构建边列表
     ae_edges = pd.DataFrame(values).stack().reset_index()
     ae_edges.columns = ['gene1', 'gene2', 'pcc']
@@ -265,18 +266,18 @@ def find_shortest_paths_between_modules(connected_subgraphs, G_int):
         for sub_small in range(sub_large + 1, len(connected_subgraphs)):
             for g1 in connected_subgraphs[sub_large]:
                 if not G_int.has_node(g1):
-                    print(g1, 'not found')
+                    logging.info(g1, 'not found')
                     continue
                 for g2 in connected_subgraphs[sub_small]:
                     if not G_int.has_node(g2):
-                        print(g2, 'not found')
+                        logging.info(g2, 'not found')
                         continue
                     try:
                         sp = nx.shortest_path(G_int, source=g1, target=g2)
                         sp_edges = list(zip(sp, sp[1:]))
                         values.append([sub_large, sub_small, g1, g2, len(sp), sp, sp_edges])
                     except nx.NetworkXNoPath:
-                        print(f"不存在从 {g1}@{sub_large} 到 {g2}@{sub_small} 的路径。")
+                        logging.info(f"不存在从 {g1}@{sub_large} 到 {g2}@{sub_small} 的路径。")
                         continue
 
     # 创建 DataFrame
@@ -455,10 +456,11 @@ def ae_net(s, **kwargs):
     ae_gene_max = kwargs['ae_gene_max']
     G_int = kwargs['G_int']
     file_e = kwargs['file_e']
+    # logger_ae_net = kwargs['logger_ae_net']
     
     thres_q_pcc_add = 0.05
     num_clusters = [5, 10, 15]
-    
+
     # ------------------------------
     # Step 1. Find AE and neighbors
 	# ------------------------------
@@ -466,7 +468,8 @@ def ae_net(s, **kwargs):
     # 选择和排序AE基因
     ae_g = select_ae_genes(df_score, s, thres_score, ae_gene_max, df_outlier)
     series_ae = df_score.loc[ae_g, s].sort_values()
-    print('AE net: get AE genes')
+    # print('AE net: get AE genes')
+    logging.info('AE net: get AE genes')
     # 找直接邻居，构建边列表
     ae_edges = find_high_correlated_genes(series_ae, pcc, pcc_tri, thres_q_pcc, pcc_gene_min, pcc_gene_max)
 	
@@ -479,12 +482,13 @@ def ae_net(s, **kwargs):
  
     # 每AE基因和直接邻居为一个子模块，构建起始网络
     A_int = nx.read_weighted_edgelist(file, delimiter='\t', nodetype=str)
-    print('AE net: check AE network connectivity, 1')
+    logging.info('AE net: check AE network connectivity, 1')
+    
     connect_state = check_network_connect(A_int,'connect?')
     if connect_state == False:
         # 找出每个模块对的最短路径
         connected_subgraphs, connected_subgraphs_size = sub_graph_size(A_int)
-        print('Modules:', connected_subgraphs_size)
+        logging.info(f'Modules:{ ','.join([str(size) for size in connected_subgraphs_size]) }')
         df_spl, spl_minimum = find_shortest_paths_between_modules(connected_subgraphs, G_int)
         
         # spl_minimum = df_spl.groupby(['large', 'small'])['spl'].min()
@@ -492,12 +496,13 @@ def ae_net(s, **kwargs):
         # df_spl = df_spl[df_spl['shortest']].copy()
         
         df_spl = assign_priority_and_filter_paths(df_spl, ae_g, spl_minimum, G_int)
-        print('AE net: shortest paths between modules\n', df_spl['prior'].value_counts(sort=True).T)
-
+        logging.info('AE net: shortest paths between modules\n')
+        logging.info(df_spl['prior'].value_counts(sort=True).T)
+        
         # 增加最短路径的包含的所有边，同时节点数量也随之增加
         spl_edges = sum([gs for gs in df_spl['sp_edges']], [])
         add_edges_to_network(A_int, spl_edges)
-        print('AE net: check AE network connectivity, 2')
+        logging.info('AE net: check AE network connectivity, 2')
         check_network_connect(A_int, 'fully connect')
         
     # ------------------------------
@@ -538,7 +543,7 @@ def ae_net(s, **kwargs):
     # adding new edges to A_int
     edges = pd.concat([A_int_edges[['gene1', 'gene2', 'group']], cand_edges[['gene1', 'gene2', 'group']]]).reset_index(drop=True)
     
-    print('AE net: run SWEET analysis')
+    logging.info('AE net: run SWEET analysis')
     sweet_edge_score(s, file_e, f'{output_dir}/sweet')
     # get SWEET results
     sweet = pd.DataFrame(np.load(f'{output_dir}/sweet/{s}.txt.npy'), 
@@ -617,7 +622,7 @@ def sweet_check_file(expres):
         loc = np.where(expres == c)
         if loc[0].size:
             expres[loc] = "0"
-            print(f"Notice! There is {c} in the 'gene expression matrix' file and it will be assigned to 0.")
+            logging.info(f"Notice! There is {c} in the 'gene expression matrix' file and it will be assigned to 0.")
     return expres
 
 def sweet_save_samples(samples, file_p):
@@ -683,7 +688,7 @@ def sweet_edge_score(s, file_e, save_path):
             tem = nline.strip('\n').split('\t')
             patientset.add(tem[0])
     if not patientset:
-        print("Warning! There is no sample ID in the 'samples of interest' file.")
+        logging.info("Warning! There is no sample ID in the 'samples of interest' file.")
         sys.exit()
 
     # open 'genes of interest' file
@@ -693,7 +698,7 @@ def sweet_edge_score(s, file_e, save_path):
             tem = nline.strip('\n').split('\t')
             geneset.add(tem[0])
     if not geneset:
-        print("Warning! There is no gene ID in the 'genes of interest' file.")
+        logging.info("Warning! There is no gene ID in the 'genes of interest' file.")
         sys.exit()
 
     # open 'sample weight' file
@@ -705,7 +710,7 @@ def sweet_edge_score(s, file_e, save_path):
             weight.update({p: float(w)})
             
     if not weight:
-        print("Warning! There is no sample ID in the 'sample weight' file.")
+        logging.info("Warning! There is no sample ID in the 'sample weight' file.")
         sys.exit()
 
     # open 'gene expression matrix' file
@@ -720,17 +725,17 @@ def sweet_edge_score(s, file_e, save_path):
 
     patlen, genelen = len(pat), len(gene)
     if (not patlen):
-        print("Warning! The 'gene expression matrix' file is empty")
+        logging.info("Warning! The 'gene expression matrix' file is empty")
         sys.exit()
 
     # check the 'samples of interest' and 'genes of interest' in expression file
     patloc = [l for l, p in enumerate(pat) if p in patientset]
-    print( f'patients:{patientset}, index:{patloc}, total samples:{patlen}, total genes:{genelen}\n' )
+    logging.info( f'patients:{patientset}, index:{patloc}, total samples:{patlen}, total genes:{genelen}\n' )
     if (not genelen) or (len(patloc) != len(patientset)):
-        print("Warning! The expression file cannot be mapped to 'samples of interest' or 'genes of interest' file")
+        logging.info("Warning! The expression file cannot be mapped to 'samples of interest' or 'genes of interest' file")
         sys.exit()
     if len(set(pat) & weight.keys()) != patlen:
-        print("Warning! The sample ID(s) in the expression file cannot be mapped to 'sample weight' file")
+        logging.info("Warning! The sample ID(s) in the expression file cannot be mapped to 'sample weight' file")
         sys.exit()
 
     gene = np.array(gene)
@@ -740,7 +745,7 @@ def sweet_edge_score(s, file_e, save_path):
     loc = np.where(np.sum(value, axis=1) == 0)
     if len(loc[0]) != 0:
         tem = ','.join(str(i)for i in gene[loc])
-        print('Processing: delete gene(s) with zero expression values in all samples:'+tem)
+        logging.info('Processing: delete gene(s) with zero expression values in all samples:'+tem)
         value = np.delete(value, loc, 0)
         gene = np.delete(gene, loc)
 
@@ -754,7 +759,7 @@ def sweet_edge_score(s, file_e, save_path):
         
         fastfile = f"{save_path}/{p}.txt.npy"
         np.save(fastfile, value_s)
-        # print('Done!', p, fastfile)
+        # logging.info('Done!', p, fastfile)
         
 # 
     
